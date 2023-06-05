@@ -28,6 +28,7 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.Uninterruptibles;
 import com.google.devtools.intellij.qsync.ArtifactTrackerData.BuildArtifacts;
 import com.google.devtools.intellij.qsync.ArtifactTrackerData.TargetArtifacts;
+import com.google.idea.blaze.base.command.buildresult.OutputArtifact;
 import com.google.idea.blaze.base.qsync.OutputInfo;
 import com.google.idea.blaze.base.scope.BlazeContext;
 import com.google.idea.blaze.base.settings.BlazeImportSettings;
@@ -50,6 +51,7 @@ import java.util.List;
 import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.stream.Stream;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
@@ -71,23 +73,33 @@ public class ArtifactTracker {
   private final FileCache generatedSrcFileCache;
   private final Path persistentFile;
 
-  public ArtifactTracker(BlazeImportSettings importSettings, ArtifactFetcher artifactFetcher) {
+  public ArtifactTracker(
+      BlazeImportSettings importSettings, ArtifactFetcher<OutputArtifact> artifactFetcher) {
     jarCache =
-        new FileCache(
-            /* cacheDir= */ getProjectDirectory(importSettings).resolve(LIBRARY_DIRECTORY),
-            /* extractAfterFetch= */ false,
-            /* artifactFetcher= */ artifactFetcher);
+        createFileCache(
+            artifactFetcher,
+            getProjectDirectory(importSettings).resolve(LIBRARY_DIRECTORY),
+            ImmutableSet.of());
     aarCache =
-        new FileCache(
-            /* cacheDir= */ getExternalAarDirectory(importSettings),
-            /* extractAfterFetch= */ true,
-            /* artifactFetcher= */ artifactFetcher);
+        createFileCache(
+            artifactFetcher, getExternalAarDirectory(importSettings), ImmutableSet.of("aar"));
     generatedSrcFileCache =
-        new FileCache(
-            /* cacheDir= */ getProjectDirectory(importSettings).resolve(GEN_SRC_DIRECTORY),
-            /* extractAfterFetch= */ true,
-            /* artifactFetcher= */ artifactFetcher);
+        createFileCache(
+            artifactFetcher,
+            getProjectDirectory(importSettings).resolve(GEN_SRC_DIRECTORY),
+            ImmutableSet.of("jar", "srcjar"));
     persistentFile = getProjectDirectory(importSettings).resolve(".artifact.info");
+  }
+
+  private static FileCache createFileCache(
+      ArtifactFetcher<OutputArtifact> artifactFetcher,
+      Path cacheDirectory,
+      ImmutableSet<String> zipFileExtensions) {
+    Path cacheDotDirectory = cacheDirectory.resolveSibling("." + cacheDirectory.getFileName());
+    return new FileCache(
+        artifactFetcher,
+        new CacheDirectoryManager(cacheDirectory, cacheDotDirectory),
+        new DefaultCacheLayout(cacheDirectory, cacheDotDirectory, zipFileExtensions));
   }
 
   public void initialize() {
@@ -168,7 +180,6 @@ public class ArtifactTracker {
     } catch (ExecutionException | IOException e) {
       throw new BuildException(e);
     }
-
   }
 
   /**
@@ -208,6 +219,16 @@ public class ArtifactTracker {
 
   public static Path getExternalAarDirectory(BlazeImportSettings importSettings) {
     return getProjectDirectory(importSettings).resolve(AAR_DIRECTORY);
+  }
+
+  public Path getGenSrcCacheDirectory() {
+    return generatedSrcFileCache.getDirectory();
+  }
+
+  public ImmutableList<Path> getGenSrcSubfolders() throws IOException {
+    try (Stream<Path> pathStream = Files.list(generatedSrcFileCache.getDirectory())) {
+      return pathStream.collect(toImmutableList());
+    }
   }
 
   public Set<Label> getCachedTargets() {

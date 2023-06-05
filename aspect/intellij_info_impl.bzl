@@ -670,15 +670,6 @@ def collect_java_info(target, ctx, semantics, ide_info, ide_info_file, output_gr
     resolve_files += plugin_processor_jar_files
     plugin_processor_jars = [annotation_processing_jars(jar, None) for jar in depset(plugin_processor_jar_files).to_list()]
 
-    # also add transitive hjars + src jars, to catch implicit deps
-
-    transitive_compile_time_jars = []
-    if hasattr(java, "transitive_compile_time_jars"):
-        update_set_in_dict(output_groups, "intellij-resolve-java-direct-deps", java.transitive_compile_time_jars)
-        update_set_in_dict(output_groups, "intellij-resolve-java-direct-deps", java.transitive_source_jars)
-        transitive_compile_time_jars += [artifact_location(output) for output in java.transitive_compile_time_jars.to_list()]
-        transitive_compile_time_jars += [artifact_location(output) for output in java.transitive_source_jars.to_list()]
-
     java_info = struct_omit_none(
         filtered_gen_jar = filtered_gen_jar,
         generated_jars = gen_jars,
@@ -689,7 +680,6 @@ def collect_java_info(target, ctx, semantics, ide_info, ide_info_file, output_gr
         sources = sources,
         test_class = getattr(ctx.rule.attr, "test_class", None),
         plugin_processor_jars = plugin_processor_jars,
-        transitive_compile_time_jars = transitive_compile_time_jars,
     )
 
     ide_info["java_ide_info"] = java_info
@@ -698,6 +688,10 @@ def collect_java_info(target, ctx, semantics, ide_info, ide_info_file, output_gr
     update_sync_output_groups(output_groups, "intellij-compile-java", depset(compile_files))
     update_sync_output_groups(output_groups, "intellij-resolve-java", depset(resolve_files))
 
+    # also add transitive hjars + src jars, to catch implicit deps
+    if hasattr(java, "transitive_compile_time_jars"):
+        update_set_in_dict(output_groups, "intellij-resolve-java-direct-deps", java.transitive_compile_time_jars)
+        update_set_in_dict(output_groups, "intellij-resolve-java-direct-deps", java.transitive_source_jars)
     return True
 
 def _android_lint_plugin_jars(target):
@@ -724,7 +718,15 @@ def build_java_package_manifest(ctx, target, source_files, suffix):
         join_with = ":",
         map_each = _package_manifest_file_argument,
     )
-    args.use_param_file("@%s")
+
+    # Bazel has an option to put your command line args in a file, and then pass the name of that file as the only
+    # argument to your executable. The PackageParser supports taking args in this way, we can pass in an args file
+    # as "@filename".
+    # Bazel Persistent Workers take their input as a file that contains the argument that will be parsed and turned
+    # into a WorkRequest proto and read on stdin. It also wants an argument of the form "@filename". We can use the
+    # params file as an arg file.
+    # Thus if we always use a params file, we can support both persistent worker mode and local mode (regular) mode.
+    args.use_param_file("@%s", use_always = True)
     args.set_param_file_format("multiline")
 
     ctx.actions.run(
@@ -734,6 +736,10 @@ def build_java_package_manifest(ctx, target, source_files, suffix):
         arguments = [args],
         mnemonic = "JavaPackageManifest",
         progress_message = "Parsing java package strings for " + str(target.label),
+        execution_requirements = {
+            "supports-workers": "1",
+            "requires-worker-protocol": "proto",
+        },
     )
     return output
 

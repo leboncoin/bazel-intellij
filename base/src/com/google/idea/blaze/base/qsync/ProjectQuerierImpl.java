@@ -24,6 +24,7 @@ import com.google.idea.blaze.base.async.executor.BlazeExecutor;
 import com.google.idea.blaze.base.scope.BlazeContext;
 import com.google.idea.blaze.base.vcs.BlazeVcsHandlerProvider;
 import com.google.idea.blaze.common.PrintOutput;
+import com.google.idea.blaze.common.vcs.VcsState;
 import com.google.idea.blaze.exception.BuildException;
 import com.google.idea.blaze.qsync.FullProjectUpdate;
 import com.google.idea.blaze.qsync.ProjectRefresher;
@@ -33,7 +34,6 @@ import com.google.idea.blaze.qsync.project.PostQuerySyncData;
 import com.google.idea.blaze.qsync.project.ProjectDefinition;
 import com.google.idea.blaze.qsync.query.QuerySpec;
 import com.google.idea.blaze.qsync.query.QuerySummary;
-import com.google.idea.blaze.qsync.vcs.VcsState;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
 import java.io.IOException;
@@ -112,7 +112,8 @@ public class ProjectQuerierImpl implements ProjectQuerier {
    * </ul>
    */
   @Override
-  public BlazeProjectSnapshot update(PostQuerySyncData previousState, BlazeContext context)
+  public BlazeProjectSnapshot update(
+      ProjectDefinition currentProjectDef, PostQuerySyncData previousState, BlazeContext context)
       throws IOException, BuildException {
 
     Optional<VcsState> vcsState = Optional.empty();
@@ -132,7 +133,7 @@ public class ProjectQuerierImpl implements ProjectQuerier {
     }
 
     RefreshOperation refresh =
-        projectRefresher.startPartialRefresh(context, previousState, vcsState);
+        projectRefresher.startPartialRefresh(context, previousState, vcsState, currentProjectDef);
 
     Optional<QuerySpec> spec = refresh.getQuerySpec();
     if (spec.isPresent()) {

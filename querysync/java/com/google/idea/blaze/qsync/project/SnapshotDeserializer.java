@@ -19,10 +19,10 @@ import static com.google.common.collect.ImmutableSet.toImmutableSet;
 
 import com.google.common.collect.ImmutableBiMap;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
+import com.google.idea.blaze.common.vcs.VcsState;
+import com.google.idea.blaze.common.vcs.WorkspaceFileChange;
+import com.google.idea.blaze.common.vcs.WorkspaceFileChange.Operation;
 import com.google.idea.blaze.qsync.query.Query;
-import com.google.idea.blaze.qsync.vcs.VcsState;
-import com.google.idea.blaze.qsync.vcs.WorkspaceFileChange;
-import com.google.idea.blaze.qsync.vcs.WorkspaceFileChange.Operation;
 import com.google.protobuf.ExtensionRegistry;
 import java.io.IOException;
 import java.io.InputStream;
@@ -73,7 +73,10 @@ public class SnapshotDeserializer {
                     c ->
                         new WorkspaceFileChange(
                             OP_MAP.get(c.getOperation()), Path.of(c.getWorkspaceRelativePath())))
-                .collect(toImmutableSet()));
+                .collect(toImmutableSet()),
+            proto.hasWorkspaceSnapshot()
+                ? Optional.of(Path.of(proto.getWorkspaceSnapshot().getPath()))
+                : Optional.empty());
     snapshot.setVcsState(Optional.of(state));
   }
 

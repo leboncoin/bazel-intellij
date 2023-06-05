@@ -16,14 +16,14 @@
 package com.google.idea.blaze.qsync.project;
 
 import static com.google.common.truth.Truth.assertThat;
-import static com.google.idea.blaze.qsync.vcs.WorkspaceFileChange.Operation.ADD;
-import static com.google.idea.blaze.qsync.vcs.WorkspaceFileChange.Operation.DELETE;
-import static com.google.idea.blaze.qsync.vcs.WorkspaceFileChange.Operation.MODIFY;
+import static com.google.idea.blaze.common.vcs.WorkspaceFileChange.Operation.ADD;
+import static com.google.idea.blaze.common.vcs.WorkspaceFileChange.Operation.DELETE;
+import static com.google.idea.blaze.common.vcs.WorkspaceFileChange.Operation.MODIFY;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.idea.blaze.common.vcs.VcsState;
+import com.google.idea.blaze.common.vcs.WorkspaceFileChange;
 import com.google.idea.blaze.qsync.query.QuerySummaryTestUtil;
-import com.google.idea.blaze.qsync.vcs.VcsState;
-import com.google.idea.blaze.qsync.vcs.WorkspaceFileChange;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Path;
@@ -50,8 +50,28 @@ public class SnapshotSerializationTest {
                         ImmutableSet.of(
                             new WorkspaceFileChange(ADD, Path.of("project/path/Added.java")),
                             new WorkspaceFileChange(DELETE, Path.of("project/path/Deleted.java")),
-                            new WorkspaceFileChange(
-                                MODIFY, Path.of("project/path/Modified.java"))))))
+                            new WorkspaceFileChange(MODIFY, Path.of("project/path/Modified.java"))),
+                        Optional.empty())))
+            .setQuerySummary(QuerySummaryTestUtil.createProtoForPackages("//project/path:path"))
+            .build();
+    byte[] serialized = new SnapshotSerializer().visit(original).toProto().toByteArray();
+    PostQuerySyncData deserialized =
+        new SnapshotDeserializer().readFrom(new ByteArrayInputStream(serialized)).getSyncData();
+    assertThat(deserialized.vcsState()).isEqualTo(original.vcsState());
+    assertThat(deserialized).isEqualTo(original);
+  }
+
+  @Test
+  public void testSerialization_withVcsState_including_workspaceSnapshot() throws IOException {
+    PostQuerySyncData original =
+        PostQuerySyncData.builder()
+            .setProjectDefinition(ProjectDefinition.create(ImmutableSet.of(), ImmutableSet.of()))
+            .setVcsState(
+                Optional.of(
+                    new VcsState(
+                        "123",
+                        ImmutableSet.of(),
+                        Optional.of(Path.of("/snapshot/user/snapshot/1")))))
             .setQuerySummary(QuerySummaryTestUtil.createProtoForPackages("//project/path:path"))
             .build();
     byte[] serialized = new SnapshotSerializer().visit(original).toProto().toByteArray();

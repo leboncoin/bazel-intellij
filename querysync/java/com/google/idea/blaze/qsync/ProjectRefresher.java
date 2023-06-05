@@ -21,10 +21,10 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import com.google.idea.blaze.common.Context;
 import com.google.idea.blaze.common.PrintOutput;
+import com.google.idea.blaze.common.vcs.VcsState;
+import com.google.idea.blaze.common.vcs.WorkspaceFileChange;
 import com.google.idea.blaze.qsync.project.PostQuerySyncData;
 import com.google.idea.blaze.qsync.project.ProjectDefinition;
-import com.google.idea.blaze.qsync.vcs.VcsState;
-import com.google.idea.blaze.qsync.vcs.WorkspaceFileChange;
 import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
@@ -48,9 +48,16 @@ public class ProjectRefresher {
   }
 
   public RefreshOperation startPartialRefresh(
-      Context context, PostQuerySyncData currentProject, Optional<VcsState> latestVcsState) {
+      Context<?> context,
+      PostQuerySyncData currentProject,
+      Optional<VcsState> latestVcsState,
+      ProjectDefinition latestProjectDefinition) {
+    if (!currentProject.projectDefinition().equals(latestProjectDefinition)) {
+      context.output(PrintOutput.output("Project definition has changed; performing full query"));
+      return fullUpdate(context, latestProjectDefinition, latestVcsState);
+    }
     if (!currentProject.vcsState().isPresent()) {
-      context.output(PrintOutput.output("No VCS state from last query: performing full query"));
+      context.output(PrintOutput.output("No VCS state from last sync: performing full query"));
       return fullUpdate(context, currentProject.projectDefinition(), latestVcsState);
     }
     if (!latestVcsState.isPresent()) {

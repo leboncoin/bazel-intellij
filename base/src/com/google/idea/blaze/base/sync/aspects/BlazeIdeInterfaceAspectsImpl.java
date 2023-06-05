@@ -91,6 +91,7 @@ import com.google.idea.blaze.base.sync.sharding.ShardedBuildProgressTracker;
 import com.google.idea.blaze.base.sync.sharding.ShardedTargetList;
 import com.google.idea.blaze.base.toolwindow.Task;
 import com.google.idea.blaze.common.PrintOutput;
+import com.google.idea.blaze.exception.BuildException;
 import com.google.idea.common.experiments.BoolExperiment;
 import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.progress.ProcessCanceledException;
@@ -155,7 +156,11 @@ public class BlazeIdeInterfaceAspectsImpl implements BlazeIdeInterface {
     RemoteOutputArtifacts newRemoteOutputs =
         oldRemoteOutputs
             .appendNewOutputs(getTrackedOutputs(buildResult.getBuildResult()))
-            .removeUntrackedOutputs(state.targetMap, projectState.getLanguageSettings());
+            .removeUntrackedOutputs(state.targetMap, projectState.getLanguageSettings())
+            .appendNewOutputs(
+                getTrackedOutputs(
+                    buildResult.getBuildResult(),
+                    group -> group.contains("intellij-resolve-java-direct-deps")));
 
     return new ProjectTargetData(state.targetMap, state.state, newRemoteOutputs);
   }
@@ -164,8 +169,13 @@ public class BlazeIdeInterfaceAspectsImpl implements BlazeIdeInterface {
   private static ImmutableSet<OutputArtifact> getTrackedOutputs(BlazeBuildOutputs buildOutput) {
     // don't track intellij-info.txt outputs -- they're already tracked in
     // BlazeIdeInterfaceState
+    return getTrackedOutputs(buildOutput, group -> true);
+  }
+
+  private static ImmutableSet<OutputArtifact> getTrackedOutputs(
+      BlazeBuildOutputs buildOutput, Predicate<String> outputGroupFilter) {
     Predicate<String> pathFilter = AspectStrategy.ASPECT_OUTPUT_FILE_PREDICATE.negate();
-    return buildOutput.getOutputGroupArtifacts(group -> true).stream()
+    return buildOutput.getOutputGroupArtifacts(outputGroupFilter).stream()
         .filter(a -> pathFilter.test(a.getRelativePath()))
         .collect(toImmutableSet());
   }
@@ -623,35 +633,39 @@ public class BlazeIdeInterfaceAspectsImpl implements BlazeIdeInterface {
                   setupToolWindow(project, childContext, workspaceRoot, task);
                   progressTracker.onBuildStarted(context);
 
-                  BlazeBuildOutputs result =
-                      runBuildForTargets(
-                          project,
-                          childContext,
-                          invoker,
-                          projectViewSet,
-                          workspaceLanguageSettings.getActiveLanguages(),
-                          targets,
-                          aspectStrategy,
-                          outputGroups,
-                          additionalBlazeFlags,
-                          invokeParallel);
-
-                  if (result.buildResult.outOfMemory()) {
-                    logger.warn(
-                        String.format(
-                            "Build shard failed with OOM error build-id=%s",
-                            result.getBuildIds().stream().findFirst().orElse(null)));
+                  try {
+                    BlazeBuildOutputs result =
+                        runBuildForTargets(
+                            project,
+                            childContext,
+                            invoker,
+                            projectViewSet,
+                            workspaceLanguageSettings.getActiveLanguages(),
+                            targets,
+                            aspectStrategy,
+                            outputGroups,
+                            additionalBlazeFlags,
+                            invokeParallel);
+                    if (result.buildResult.outOfMemory()) {
+                      logger.warn(
+                          String.format(
+                              "Build shard failed with OOM error build-id=%s",
+                              result.getBuildIds().stream().findFirst().orElse(null)));
+                    }
+                    printShardFinishedSummary(context, task.getName(), result, invoker);
+                    synchronized (combinedResult) {
+                      combinedResult.set(
+                          combinedResult.isNull()
+                              ? result
+                              : combinedResult.get().updateOutputs(result));
+                    }
+                    return result.buildResult;
+                  } catch (BuildException e) {
+                    context.handleException("Failed to build targets", e);
+                    return BuildResult.FATAL_ERROR;
+                  } finally {
+                    progressTracker.onBuildCompleted(context);
                   }
-
-                  progressTracker.onBuildCompleted(context); // TODO(b/216104482) track failures
-                  printShardFinishedSummary(context, task.getName(), result, invoker);
-                  synchronized (combinedResult) {
-                    combinedResult.set(
-                        combinedResult.isNull()
-                            ? result
-                            : combinedResult.get().updateOutputs(result));
-                  }
-                  return result.buildResult;
                 });
     BuildResult buildResult =
         shardedTargets.runShardedCommand(
@@ -717,7 +731,8 @@ public class BlazeIdeInterfaceAspectsImpl implements BlazeIdeInterface {
       AspectStrategy aspectStrategy,
       ImmutableSet<OutputGroup> outputGroups,
       List<String> additionalBlazeFlags,
-      boolean invokeParallel) {
+      boolean invokeParallel)
+      throws BuildException {
 
     boolean onlyDirectDeps =
         viewSet.getScalarValue(AutomaticallyDeriveTargetsSection.KEY).orElse(false);
