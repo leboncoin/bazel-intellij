@@ -24,12 +24,14 @@ import com.google.common.collect.ImmutableList;
 import com.google.errorprone.annotations.CanIgnoreReturnValue;
 import java.nio.file.Path;
 import java.util.Collection;
+import java.util.Formattable;
+import java.util.Formatter;
 
 /** Represents arguments to a {@code query} invocation. */
 @AutoValue
-public abstract class QuerySpec {
+public abstract class QuerySpec implements Formattable {
 
-  public static final QuerySpec EMPTY = builder().build();
+  public abstract Path workspaceRoot();
 
   /** The set of package patterns to include. */
   abstract ImmutableList<String> includes();
@@ -67,6 +69,24 @@ public abstract class QuerySpec {
                 .build());
   }
 
+  @Override
+  public void formatTo(Formatter formatter, int flags, int width, int precision) {
+    // We implement Formattable for custom "precision" (max length) handling to allow a truncated
+    // query expression to be shown as such in the log, using normal string formatting.
+    String s = toString();
+    if (precision == -1 || s.length() < precision) {
+      formatter.format(s);
+      return;
+    }
+    final String truncated = "<truncated>";
+    if (precision < truncated.length()) {
+      formatter.format(s.substring(0, precision));
+      return;
+    }
+    formatter.format(s.substring(0, precision - truncated.length()));
+    formatter.format(truncated);
+  }
+
   public static Builder builder() {
     return new AutoValue_QuerySpec.Builder();
   }
@@ -83,6 +103,8 @@ public abstract class QuerySpec {
    */
   @AutoValue.Builder
   public abstract static class Builder {
+
+    public abstract Builder workspaceRoot(Path workspaceRoot);
 
     abstract ImmutableList.Builder<String> includesBuilder();
 

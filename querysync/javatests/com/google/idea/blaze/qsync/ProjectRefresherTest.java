@@ -17,13 +17,19 @@ package com.google.idea.blaze.qsync;
 
 import static com.google.common.truth.Truth.assertThat;
 
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableSet;
 import com.google.idea.blaze.common.vcs.VcsState;
 import com.google.idea.blaze.common.vcs.WorkspaceFileChange;
 import com.google.idea.blaze.common.vcs.WorkspaceFileChange.Operation;
+import com.google.idea.blaze.qsync.project.BlazeProjectSnapshot;
 import com.google.idea.blaze.qsync.project.PostQuerySyncData;
 import com.google.idea.blaze.qsync.project.ProjectDefinition;
+import com.google.idea.blaze.qsync.project.ProjectDefinition.LanguageClass;
+import com.google.idea.blaze.qsync.query.Query;
+import com.google.idea.blaze.qsync.query.QuerySummary;
 import com.google.idea.blaze.qsync.query.QuerySummaryTestUtil;
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Optional;
 import org.junit.Test;
@@ -34,7 +40,75 @@ import org.junit.runners.JUnit4;
 public class ProjectRefresherTest {
 
   private ProjectRefresher createRefresher() {
-    return new ProjectRefresher(QuerySyncTestUtils.EMPTY_PACKAGE_READER, Path.of("/"));
+    return createRefresher(Optional.of(BlazeProjectSnapshot.EMPTY));
+  }
+
+  private ProjectRefresher createRefresher(Optional<BlazeProjectSnapshot> existingSnapshot) {
+    return new ProjectRefresher(
+        QuerySyncTestUtils.EMPTY_PACKAGE_READER,
+        Path.of("/"),
+        Suppliers.ofInstance(existingSnapshot));
+  }
+
+  @Test
+  public void testStartPartialRefresh_pluginVersionChanged() {
+    PostQuerySyncData project =
+        PostQuerySyncData.EMPTY.toBuilder()
+            .setVcsState(Optional.of(new VcsState("1", ImmutableSet.of(), Optional.empty())))
+            .setQuerySummary(QuerySummary.create(Query.Summary.newBuilder().setVersion(-1).build()))
+            .build();
+
+    RefreshOperation update =
+        createRefresher()
+            .startPartialRefresh(
+                QuerySyncTestUtils.LOGGING_CONTEXT,
+                project,
+                project.vcsState(),
+                project.projectDefinition());
+    assertThat(update).isInstanceOf(FullProjectUpdate.class);
+  }
+
+  @Test
+  public void testStartPartialRefresh_vcsSnapshotUnchanged_existingProjectSnapshot()
+      throws IOException {
+    VcsState vcsState =
+        new VcsState("1", ImmutableSet.of(), Optional.of(Path.of("/my/workspace/.snapshot/1")));
+    PostQuerySyncData project =
+        PostQuerySyncData.EMPTY.toBuilder()
+            .setVcsState(Optional.of(vcsState))
+            .setQuerySummary(QuerySummary.EMPTY)
+            .build();
+    BlazeProjectSnapshot existingProject = BlazeProjectSnapshot.EMPTY;
+    RefreshOperation update =
+        createRefresher(Optional.of(existingProject))
+            .startPartialRefresh(
+                QuerySyncTestUtils.LOGGING_CONTEXT,
+                project,
+                project.vcsState(),
+                project.projectDefinition());
+    assertThat(update).isInstanceOf(NoopProjectRefresh.class);
+    assertThat(update.createBlazeProject()).isSameInstanceAs(existingProject);
+  }
+
+  @Test
+  public void testStartPartialRefresh_vcsSnapshotUnchanged_noExistingProjectSnapshot()
+      throws IOException {
+    PostQuerySyncData project =
+        PostQuerySyncData.EMPTY.toBuilder()
+            .setVcsState(
+                Optional.of(
+                    new VcsState(
+                        "1", ImmutableSet.of(), Optional.of(Path.of("/my/workspace/.snapshot/1")))))
+            .setQuerySummary(QuerySummary.EMPTY)
+            .build();
+    RefreshOperation update =
+        createRefresher(Optional.empty())
+            .startPartialRefresh(
+                QuerySyncTestUtils.LOGGING_CONTEXT,
+                project,
+                project.vcsState(),
+                project.projectDefinition());
+    assertThat(update).isInstanceOf(PartialProjectRefresh.class);
   }
 
   @Test
@@ -67,7 +141,10 @@ public class ProjectRefresherTest {
                             new WorkspaceFileChange(Operation.ADD, Path.of("package/path/BUILD"))),
                         Optional.empty())))
             .setProjectDefinition(
-                ProjectDefinition.create(ImmutableSet.of(Path.of("package")), ImmutableSet.of()))
+                ProjectDefinition.create(
+                    ImmutableSet.of(Path.of("package")),
+                    ImmutableSet.of(),
+                    ImmutableSet.of(LanguageClass.JAVA)))
             .build();
 
     RefreshOperation update =
@@ -97,7 +174,10 @@ public class ProjectRefresherTest {
                                 Operation.DELETE, Path.of("package/path/BUILD"))),
                         Optional.empty())))
             .setProjectDefinition(
-                ProjectDefinition.create(ImmutableSet.of(Path.of("package")), ImmutableSet.of()))
+                ProjectDefinition.create(
+                    ImmutableSet.of(Path.of("package")),
+                    ImmutableSet.of(),
+                    ImmutableSet.of(LanguageClass.JAVA)))
             .build();
 
     RefreshOperation update =
@@ -128,7 +208,10 @@ public class ProjectRefresherTest {
                                 Operation.MODIFY, Path.of("package/path/BUILD"))),
                         Optional.empty())))
             .setProjectDefinition(
-                ProjectDefinition.create(ImmutableSet.of(Path.of("package")), ImmutableSet.of()))
+                ProjectDefinition.create(
+                    ImmutableSet.of(Path.of("package")),
+                    ImmutableSet.of(),
+                    ImmutableSet.of(LanguageClass.JAVA)))
             .build();
 
     RefreshOperation update =

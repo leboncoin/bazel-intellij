@@ -29,6 +29,7 @@ import com.google.idea.blaze.base.sync.SyncListener;
 import com.google.idea.blaze.base.sync.SyncMode;
 import com.google.idea.blaze.base.sync.SyncResult;
 import com.google.idea.blaze.base.sync.projectview.ImportRoots;
+import com.google.idea.blaze.base.sync.projectview.LanguageSupport;
 import com.google.idea.blaze.base.sync.projectview.WorkspaceLanguageSettings;
 import com.google.idea.blaze.base.sync.workspace.WorkspacePathResolver;
 import com.google.idea.blaze.base.targetmaps.SourceToTargetMap;
@@ -70,7 +71,7 @@ public class QuerySyncProject {
   private final BlazeProject snapshotHolder;
   private final BlazeImportSettings importSettings;
   private final WorkspaceRoot workspaceRoot;
-  private final DependencyCache dependencyCache;
+  private final ArtifactTracker artifactTracker;
   private final DependencyTracker dependencyTracker;
   private final ProjectQuerier projectQuerier;
   private final ProjectDefinition projectDefinition;
@@ -89,7 +90,7 @@ public class QuerySyncProject {
       BlazeProject snapshotHolder,
       BlazeImportSettings importSettings,
       WorkspaceRoot workspaceRoot,
-      DependencyCache dependencyCache,
+      ArtifactTracker artifactTracker,
       DependencyTracker dependencyTracker,
       ProjectQuerier projectQuerier,
       ProjectDefinition projectDefinition,
@@ -103,7 +104,7 @@ public class QuerySyncProject {
     this.snapshotHolder = snapshotHolder;
     this.importSettings = importSettings;
     this.workspaceRoot = workspaceRoot;
-    this.dependencyCache = dependencyCache;
+    this.artifactTracker = artifactTracker;
     this.dependencyTracker = dependencyTracker;
     this.projectQuerier = projectQuerier;
     this.projectDefinition = projectDefinition;
@@ -127,8 +128,8 @@ public class QuerySyncProject {
     return workspaceLanguageSettings;
   }
 
-  public DependencyCache getDependencyCache() {
-    return dependencyCache;
+  public ArtifactTracker getArtifactTracker() {
+    return artifactTracker;
   }
 
   public SourceToTargetMap getSourceToTargetMap() {
@@ -149,7 +150,7 @@ public class QuerySyncProject {
           lastQuery.isEmpty()
               ? projectQuerier.fullQuery(projectDefinition, context)
               : projectQuerier.update(projectDefinition, lastQuery.get(), context);
-      newProject = dependencyTracker.updateSnapshot(context, newProject);
+      newProject = artifactTracker.updateSnapshot(newProject);
       onNewSnapshot(context, newProject);
 
       // TODO: Revisit SyncListeners once we switch fully to qsync
@@ -178,7 +179,7 @@ public class QuerySyncProject {
   public void build(BlazeContext context, List<Path> wps) throws IOException, BuildException {
     getDependencyTracker().buildDependenciesForFile(context, wps);
     BlazeProjectSnapshot newSnapshot =
-        getDependencyTracker().updateSnapshot(context, snapshotHolder.getCurrent().orElseThrow());
+        artifactTracker.updateSnapshot(snapshotHolder.getCurrent().orElseThrow());
     onNewSnapshot(context, newSnapshot);
   }
 
@@ -201,8 +202,14 @@ public class QuerySyncProject {
     if (virtualFile == null) {
       return true;
     }
+    Path p = virtualFile.getFileSystem().getNioPath(virtualFile);
+    if (p == null || !p.startsWith(workspaceRoot.path())) {
+      // Not in the workspace.
+      // p == null can occur if the file is a zip entry.
+      return true;
+    }
     Set<Label> pendingTargets =
-        dependencyTracker.getPendingTargets(workspaceRoot.relativize(psiFile.getVirtualFile()));
+        dependencyTracker.getPendingTargets(workspaceRoot.relativize(virtualFile));
     int unsynced = pendingTargets == null ? 0 : pendingTargets.size();
     return unsynced == 0;
   }
@@ -221,8 +228,13 @@ public class QuerySyncProject {
         ImportRoots.builder(workspaceRoot, importSettings.getBuildSystem())
             .add(projectViewSet)
             .build();
+    WorkspaceLanguageSettings workspaceLanguageSettings =
+        LanguageSupport.createWorkspaceLanguageSettings(projectViewSet);
     ProjectDefinition projectDefinition =
-        ProjectDefinition.create(importRoots.rootPaths(), importRoots.excludePaths());
+        ProjectDefinition.create(
+            importRoots.rootPaths(),
+            importRoots.excludePaths(),
+            LanguageClasses.translateFrom(workspaceLanguageSettings.getActiveLanguages()));
 
     return this.projectDefinition.equals(projectDefinition);
   }

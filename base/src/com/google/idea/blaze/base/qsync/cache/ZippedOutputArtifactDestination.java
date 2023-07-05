@@ -15,7 +15,8 @@
  */
 package com.google.idea.blaze.base.qsync.cache;
 
-import com.google.common.io.MoreFiles;
+import com.google.idea.blaze.base.qsync.cache.FileCache.OutputArtifactDestinationAndLayout;
+import com.intellij.openapi.util.io.FileUtil;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -25,7 +26,9 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 /** A record that describes the location of an output artifact in cache directories. */
-public class ZippedOutputArtifactDestination implements FileCache.OutputArtifactDestination {
+public class ZippedOutputArtifactDestination implements OutputArtifactDestinationAndLayout {
+
+  private final String key;
 
   /**
    * The location where in the cache directory the representation of the artifact for the IDE should
@@ -35,7 +38,8 @@ public class ZippedOutputArtifactDestination implements FileCache.OutputArtifact
 
   private final Path copyDestination;
 
-  public ZippedOutputArtifactDestination(Path finalDestination, Path copyDestination) {
+  public ZippedOutputArtifactDestination(String key, Path finalDestination, Path copyDestination) {
+    this.key = key;
     this.finalDestination = finalDestination;
     this.copyDestination = copyDestination;
   }
@@ -58,6 +62,11 @@ public class ZippedOutputArtifactDestination implements FileCache.OutputArtifact
     }
   }
 
+  @Override
+  public String getKey() {
+    return key;
+  }
+
   /**
    * The location where in the cache directory the artifact file itself should be placed.
    *
@@ -71,7 +80,7 @@ public class ZippedOutputArtifactDestination implements FileCache.OutputArtifact
   @Override
   public Path prepareFinalLayout() throws IOException {
     if (Files.exists(finalDestination)) {
-      MoreFiles.deleteRecursively(finalDestination);
+      FileUtil.delete(finalDestination.toFile());
     }
     extract(copyDestination, finalDestination);
     return finalDestination;

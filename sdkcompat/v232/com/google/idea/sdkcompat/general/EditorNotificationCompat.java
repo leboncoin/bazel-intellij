@@ -1,5 +1,5 @@
 /*
- * Copyright 2016 The Bazel Authors. All rights reserved.
+ * Copyright 2022 The Bazel Authors. All rights reserved.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -13,16 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.google.idea.blaze.base.async.executor;
+package com.google.idea.sdkcompat.general;
 
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import com.intellij.openapi.extensions.ExtensionPoint;
+import com.intellij.openapi.project.Project;
+import com.intellij.ui.EditorNotificationProvider;
 
-/** An executor that grows to a finite number of threads and times them out quickly. */
-public class TransientExecutor extends ThreadPoolExecutor {
-  public TransientExecutor(int maxThreads) {
-    super(maxThreads, maxThreads, 200, TimeUnit.MILLISECONDS, new LinkedBlockingQueue<>());
-    allowCoreThreadTimeOut(true);
-  }
+public class EditorNotificationCompat {
+    /** #api213, inline once api213 support is dropped */
+    public static ExtensionPoint<EditorNotificationProvider> getEp(Project project) {
+        return EditorNotificationProvider.EP_NAME.getPoint(project);
+    }
 }

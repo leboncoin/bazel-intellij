@@ -28,7 +28,7 @@ import com.google.idea.blaze.base.model.primitives.WorkspaceRoot;
 import com.google.idea.blaze.base.projectview.ProjectViewManager;
 import com.google.idea.blaze.base.projectview.ProjectViewSet;
 import com.google.idea.blaze.base.qsync.cache.ArtifactFetcher;
-import com.google.idea.blaze.base.qsync.cache.ArtifactTracker;
+import com.google.idea.blaze.base.qsync.cache.ArtifactTrackerImpl;
 import com.google.idea.blaze.base.scope.BlazeContext;
 import com.google.idea.blaze.base.settings.BlazeImportSettings;
 import com.google.idea.blaze.base.settings.BlazeImportSettings.ProjectType;
@@ -44,12 +44,12 @@ import com.google.idea.blaze.qsync.BlazeProject;
 import com.google.idea.blaze.qsync.PackageStatementParser;
 import com.google.idea.blaze.qsync.ParallelPackageReader;
 import com.google.idea.blaze.qsync.ProjectRefresher;
-import com.google.idea.blaze.qsync.WorkspaceResolvingPackageReader;
 import com.google.idea.blaze.qsync.project.ProjectDefinition;
 import com.intellij.openapi.project.Project;
 import com.intellij.util.concurrency.AppExecutorUtil;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import org.jetbrains.annotations.Nullable;
 
 /**
@@ -103,7 +103,10 @@ public class ProjectLoader {
         LanguageSupport.createWorkspaceLanguageSettings(projectViewSet);
 
     ProjectDefinition latestProjectDef =
-        ProjectDefinition.create(importRoots.rootPaths(), importRoots.excludePaths());
+        ProjectDefinition.create(
+            importRoots.rootPaths(),
+            importRoots.excludePaths(),
+            LanguageClasses.translateFrom(workspaceLanguageSettings.getActiveLanguages()));
 
     Path snapshotFilePath = getSnapshotFilePath(importSettings);
 
@@ -112,13 +115,17 @@ public class ProjectLoader {
 
     BlazeProject graph = new BlazeProject();
     ArtifactFetcher<OutputArtifact> artifactFetcher = createArtifactFetcher();
-    ArtifactTracker artifactTracker = new ArtifactTracker(importSettings, artifactFetcher);
+    ArtifactTrackerImpl artifactTracker =
+        new ArtifactTrackerImpl(
+            BlazeDataStorage.getProjectDataDir(importSettings).toPath(),
+            Paths.get(checkNotNull(project.getBasePath())),
+            artifactFetcher);
     artifactTracker.initialize();
-    DependencyCache dependencyCache = new DependencyCache(artifactTracker);
     DependencyTracker dependencyTracker =
-        new DependencyTracker(project, graph, dependencyBuilder, dependencyCache);
+        new DependencyTracker(project, graph, dependencyBuilder, artifactTracker);
     ProjectRefresher projectRefresher =
-        new ProjectRefresher(createPackageReader(workspaceRoot), workspaceRoot.path());
+        new ProjectRefresher(
+            createWorkspaceRelativePackageReader(), workspaceRoot.path(), graph::getCurrent);
     QueryRunner queryRunner = createQueryRunner(buildSystem);
     ProjectQuerier projectQuerier = createProjectQuerier(projectRefresher, queryRunner);
     ProjectUpdater projectUpdater =
@@ -133,7 +140,7 @@ public class ProjectLoader {
         graph,
         importSettings,
         workspaceRoot,
-        dependencyCache,
+        artifactTracker,
         dependencyTracker,
         projectQuerier,
         latestProjectDef,
@@ -144,14 +151,12 @@ public class ProjectLoader {
         projectViewManager);
   }
 
-  private static ParallelPackageReader createPackageReader(WorkspaceRoot workspaceRoot) {
+  private static ParallelPackageReader createWorkspaceRelativePackageReader() {
     ListeningExecutorService executor =
         MoreExecutors.listeningDecorator(
             AppExecutorUtil.createBoundedApplicationPoolExecutor("ParallelPackageReader", 128));
 
-    return new ParallelPackageReader(
-        executor,
-        new WorkspaceResolvingPackageReader(workspaceRoot.path(), new PackageStatementParser()));
+    return new ParallelPackageReader(executor, new PackageStatementParser());
   }
 
   private ProjectQuerierImpl createProjectQuerier(
@@ -160,7 +165,7 @@ public class ProjectLoader {
   }
 
   protected QueryRunner createQueryRunner(BuildSystem buildSystem) {
-    return new BazelQueryRunner(project, buildSystem);
+    return buildSystem.createQueryRunner(project);
   }
 
   protected DependencyBuilder createDependencyBuilder(

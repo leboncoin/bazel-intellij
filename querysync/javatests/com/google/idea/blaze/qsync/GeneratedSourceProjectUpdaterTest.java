@@ -24,6 +24,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.idea.blaze.qsync.project.BuildGraphData;
 import com.google.idea.blaze.qsync.project.ProjectDefinition;
+import com.google.idea.blaze.qsync.project.ProjectDefinition.LanguageClass;
 import com.google.idea.blaze.qsync.project.ProjectProto.ContentEntry;
 import com.google.idea.blaze.qsync.project.ProjectProto.ContentRoot.Base;
 import com.google.idea.blaze.qsync.project.ProjectProto.Project;
@@ -45,7 +46,10 @@ public class GeneratedSourceProjectUpdaterTest {
         new GraphToProjectConverter(
             EMPTY_PACKAGE_READER,
             NOOP_CONTEXT,
-            ProjectDefinition.create(ImmutableSet.of(workspaceImportDirectory), ImmutableSet.of()));
+            ProjectDefinition.create(
+                ImmutableSet.of(workspaceImportDirectory),
+                ImmutableSet.of(),
+                ImmutableSet.of(LanguageClass.JAVA)));
 
     BuildGraphData buildGraphData =
         new BlazeQueryParser(NOOP_CONTEXT)
@@ -59,7 +63,7 @@ public class GeneratedSourceProjectUpdaterTest {
 
     GeneratedSourceProjectUpdater updater =
         new GeneratedSourceProjectUpdater(project, Paths.get(""), ImmutableList.of());
-    Project newProject = updater.addGenSrcContentEntry(NOOP_CONTEXT);
+    Project newProject = updater.addGenSrcContentEntry();
 
     // Operation is a no-op that passes the proto through.
     assertThat(newProject).isSameInstanceAs(project);
@@ -81,7 +85,7 @@ public class GeneratedSourceProjectUpdaterTest {
             ImmutableList.of(
                 projectPath.resolve(genSrcCacheRelativePath).resolve("gensrc1"),
                 projectPath.resolve(genSrcCacheRelativePath).resolve("gensrc2")));
-    Project newProject = updater.addGenSrcContentEntry(NOOP_CONTEXT);
+    Project newProject = updater.addGenSrcContentEntry();
     assertThat(newProject.getModulesCount()).isEqualTo(1);
     assertThat(newProject.getModules(0).getContentEntriesCount()).isEqualTo(2);
     ContentEntry contentEntry = newProject.getModules(0).getContentEntries(1);

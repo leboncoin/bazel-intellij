@@ -16,6 +16,7 @@
 package com.google.idea.blaze.base.async.process;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
@@ -54,7 +55,7 @@ public interface ExternalTask {
   /** A builder for an external task */
   class Builder {
     @VisibleForTesting public final ImmutableList.Builder<String> command = ImmutableList.builder();
-    final File workingDirectory;
+    File workingDirectory;
     final Map<String, String> environmentVariables = Maps.newHashMap();
     @VisibleForTesting @Nullable public BlazeContext context;
     @VisibleForTesting @Nullable public OutputStream stdout;
@@ -98,6 +99,7 @@ public interface ExternalTask {
     public Builder addBlazeCommand(BlazeCommand blazeCommand) {
       this.blazeCommand = blazeCommand;
       command.addAll(blazeCommand.toList());
+      blazeCommand.getEffectiveWorkspaceRoot().ifPresent(p -> workingDirectory = p.toFile());
       return this;
     }
 
@@ -181,6 +183,11 @@ public interface ExternalTask {
     }
 
     @Override
+    public String toString() {
+      return Joiner.on(' ').join(resolveCustomBinary(command));
+    }
+
+    @Override
     public int run(BlazeScope... scopes) {
       Integer returnValue =
           Scope.push(
@@ -252,6 +259,11 @@ public interface ExternalTask {
           PrintOutput.log(
               StringUtil.shortenTextWithEllipsis(
                   logMessage, /* maxLength= */ 1000, /* suffixLength= */ 0)));
+
+      logger.info(
+          String.format(
+              "Running task:\n  %s\n  with PWD: %s",
+              ParametersListUtil.join(command), workingDirectory));
 
       try {
         if (context.isEnding()) {

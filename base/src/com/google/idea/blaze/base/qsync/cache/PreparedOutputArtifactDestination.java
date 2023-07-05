@@ -15,20 +15,28 @@
  */
 package com.google.idea.blaze.base.qsync.cache;
 
+import com.google.idea.blaze.base.qsync.cache.FileCache.OutputArtifactDestinationAndLayout;
 import java.io.IOException;
 import java.nio.file.Path;
 
 /** A record that describes the location of an output artifact in cache directories. */
-public class PreparedOutputArtifactDestination implements FileCache.OutputArtifactDestination {
+public class PreparedOutputArtifactDestination implements OutputArtifactDestinationAndLayout {
 
+  private final String key;
   /**
    * The location where in the cache directory the representation of the artifact for the IDE should
    * be placed.
    */
   public final Path finalDestination;
 
-  public PreparedOutputArtifactDestination(Path finalDestination) {
+  public PreparedOutputArtifactDestination(String key, Path finalDestination) {
+    this.key = key;
     this.finalDestination = finalDestination;
+  }
+
+  @Override
+  public String getKey() {
+    return key;
   }
 
   /**
